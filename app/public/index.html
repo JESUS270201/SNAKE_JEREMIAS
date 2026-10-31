@@ -27,18 +27,53 @@
       <div class="progress" aria-hidden="true"><i id="progressBar"></i></div>
       <canvas id="game" width="960" height="672"></canvas>
 
-      <div class="overlay" id="menu">
+      <div class="overlay" id="auth">
+        <div class="card">
+          <h2 id="authTitle">🔐 Iniciar sesión</h2>
+          <div class="tabs">
+            <button type="button" class="tab sel" id="tabLogin">Entrar</button>
+            <button type="button" class="tab" id="tabRegister">Crear cuenta</button>
+          </div>
+          <label for="userInput" id="userLabel">Usuario</label>
+          <input id="userInput" maxlength="12" placeholder="3-12 letras, números o _" autocomplete="username" />
+          <div id="emailRow" class="hidden-field">
+            <label for="emailInput">Correo electrónico</label>
+            <input id="emailInput" type="email" maxlength="100" placeholder="tucorreo@ejemplo.com" autocomplete="email" />
+          </div>
+          <div id="codeRow" class="hidden-field">
+            <label for="codeInput">Código recibido en tu correo</label>
+            <input id="codeInput" maxlength="12" placeholder="123456" inputmode="numeric" autocomplete="one-time-code" />
+          </div>
+          <label for="passInput" id="passLabel">Contraseña</label>
+          <input id="passInput" type="password" maxlength="64" placeholder="Mínimo 4 caracteres" autocomplete="current-password" />
+          <p class="auth-err" id="authErr"></p>
+          <button class="btn sec hidden-field" id="sendCodeBtn" type="button">✉️ ENVIAR CÓDIGO AL CORREO</button>
+          <button class="btn" id="authBtn">ENTRAR</button>
+          <button type="button" class="link" id="forgotBtn">¿Olvidaste tu contraseña?</button>
+        </div>
+      </div>
+
+      <div class="overlay hidden" id="menu">
         <div class="card">
           <div class="cube-preview"><canvas id="preview" width="96" height="96"></canvas></div>
           <h2>¡Prepárate para el salto!</h2>
-          <label for="nameInput">Nombre</label>
-          <input id="nameInput" maxlength="12" placeholder="Tu nombre" autocomplete="off" />
+          <div class="profile">
+            <div class="pname">👤 <b id="profName">—</b></div>
+            <div class="pmail" id="profMail"></div>
+            <div class="pstats">
+              <span>Partidas <b id="stGames">0</b></span>
+              <span>Mejor <b id="stBest">0</b></span>
+              <span>Total <b id="stTotal">0</b></span>
+            </div>
+          </div>
           <label>Elige tu cubo</label>
           <div class="skins" id="skins"></div>
           <label for="roomInput">Sala <small>(comparte el nombre con tus amigos)</small></label>
           <input id="roomInput" maxlength="24" value="arena" autocomplete="off" />
           <button class="btn" id="playBtn">▶ JUGAR</button>
           <button class="btn sec" id="menuHelpBtn">📖 INSTRUCCIONES</button>
+          <button class="btn sec" id="emailBtn">📧 ASOCIAR CORREO</button>
+          <button class="btn sec" id="logoutBtn">🚪 CERRAR SESIÓN</button>
           <p class="hint">Flechas / WASD · Orbes <i class="orb"></i> +10 · Monedas <i class="coin"></i> +30</p>
         </div>
       </div>

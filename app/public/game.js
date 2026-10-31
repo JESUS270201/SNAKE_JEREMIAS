@@ -198,14 +198,14 @@
   function connect() {
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     closeWs();
-    const name = $('nameInput').value.trim() || 'Cube';
+    const name = user ? user.username : 'Cube';
     const room = ($('roomInput').value.trim() || 'arena').toLowerCase().replace(/\s+/g, '-');
-    localStorage.name = name; localStorage.skin = skin; localStorage.room = room;
+    localStorage.skin = skin; localStorage.room = room;
     showConn('Conectando…');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const sock = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}`);
     ws = sock;
-    sock.onopen = () => sock.send(JSON.stringify({ type: 'join', name, skin }));
+    sock.onopen = () => sock.send(JSON.stringify({ type: 'join', token: localStorage.token, skin }));
     sock.onmessage = (ev) => {
       if (ws !== sock) return;
       const m = JSON.parse(ev.data);
@@ -220,6 +220,7 @@
       else if (m.type === 'dead') onDead(m);
       else if (m.type === 'error') {
         closeWs();
+        if (m.code === 'auth') { logoutLocal(); return; }
         showConn(m.msg);
         setTimeout(() => { hide('conn'); show('menu'); }, 1800);
       }
@@ -240,6 +241,7 @@
     lastPlayersKey = '';
     $('players').innerHTML = '';
     hide('crash'); hide('conn'); show('menu');
+    refreshProfile();
     $('roomInput').focus();
     $('roomInput').select();
   }
@@ -300,7 +302,11 @@
   /* -------------------------------- Controles -------------------------------- */
   const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
   addEventListener('keydown', (e) => {
-    if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') $('playBtn').click(); return; }
+    if (e.target.tagName === 'INPUT') {
+      if (e.key === 'Enter') $(e.target.id === 'roomInput' ? 'playBtn' : 'authBtn').click();
+      return;
+    }
+    if (!$('auth').classList.contains('hidden')) return;
     if (!$('menu').classList.contains('hidden')) {
       if (e.key === 'Enter') { e.preventDefault(); $('playBtn').click(); }
       return;
@@ -374,8 +380,110 @@
     skin = +i; sync();
   };
   function sync() { document.querySelectorAll('.skin').forEach((d) => d.classList.toggle('sel', +d.dataset.i === skin)); drawPreview(); }
-  $('nameInput').value = localStorage.name || '';
   $('roomInput').value = new URLSearchParams(location.search).get('room') || localStorage.room || 'arena';
   sync(); loadTop(); setInterval(loadTop, 8000);
+
+  /* ------------------------------ Cuentas ------------------------------ */
+  let user = null, authMode = 'login';
+  function setMode(mode) {
+    authMode = mode;
+    $('tabLogin').classList.toggle('sel', mode === 'login');
+    $('tabRegister').classList.toggle('sel', mode === 'register');
+    $('authTitle').textContent = { login: '🔐 Iniciar sesión', register: '✨ Crear cuenta', recover: '🔑 Recuperar contraseña' }[mode];
+    $('authBtn').textContent = { login: 'ENTRAR', register: 'CREAR Y JUGAR', recover: 'CAMBIAR CONTRASEÑA' }[mode];
+    $('passInput').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    $('passLabel').textContent = mode === 'recover' ? 'Nueva contraseña' : 'Contraseña';
+    $('codeRow').classList.toggle('on', mode === 'recover');
+    $('emailRow').classList.toggle('on', mode === 'register');
+    $('sendCodeBtn').classList.toggle('on', mode === 'recover');
+    $('userLabel').textContent = mode === 'recover' ? 'Usuario o correo' : 'Usuario';
+    $('userInput').maxLength = mode === 'recover' ? 100 : 12;
+    $('userInput').placeholder = mode === 'recover' ? 'tu usuario o tu correo' : '3-12 letras, números o _';
+    $('authErr').style.color = '';
+    $('forgotBtn').textContent = mode === 'recover' ? '← Volver a iniciar sesión' : '¿Olvidaste tu contraseña?';
+    $('authErr').textContent = '';
+  }
+  $('forgotBtn').onclick = () => setMode(authMode === 'recover' ? 'login' : 'recover');
+  function showProfile() {
+    $('profName').textContent = user.username;
+    $('profMail').textContent = user.email ? '✉️ ' + user.email : '⚠️ Sin correo asociado';
+    $('emailBtn').textContent = user.email ? '📧 CAMBIAR CORREO' : '📧 ASOCIAR CORREO';
+    $('stGames').textContent = user.games; $('stBest').textContent = user.bestScore; $('stTotal').textContent = user.totalScore;
+  }
+  function setUser(u) {
+    user = u; showProfile();
+    skin = u.skin % SKINS.length; sync();
+    hide('auth'); show('menu');
+  }
+  $('sendCodeBtn').onclick = async () => {
+    const ident = $('userInput').value.trim();
+    if (!ident) { $('authErr').textContent = 'Escribe tu usuario o correo'; return; }
+    $('sendCodeBtn').disabled = true;
+    try {
+      const r = await fetch('/api/forgot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: ident }) });
+      const d = await r.json();
+      $('authErr').style.color = r.ok ? '#8affb0' : '';
+      $('authErr').textContent = r.ok ? d.message + ' (válido 15 min)' : d.error;
+    } catch { $('authErr').textContent = 'No se pudo conectar con el servidor'; }
+    finally { $('sendCodeBtn').disabled = false; }
+  };
+  $('emailBtn').onclick = async () => {
+    const email = prompt('Escribe tu correo electrónico:', user && user.email || '');
+    if (!email) return;
+    const password = prompt('Confirma con tu contraseña actual:');
+    if (!password) return;
+    try {
+      const r = await fetch('/api/email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + localStorage.token },
+        body: JSON.stringify({ email, password }),
+      });
+      const d = await r.json();
+      if (r.ok) { user.email = d.email; showProfile(); toast('✅ Correo guardado'); } else toast(d.error || 'Error');
+    } catch { toast('No se pudo conectar'); }
+  };
+  function logoutLocal() {
+    user = null; delete localStorage.token;
+    hide('menu'); hide('conn'); hide('crash'); show('auth');
+    $('passInput').value = ''; $('authErr').textContent = ''; setMode('login');
+    $('userInput').focus();
+  }
+  async function submitAuth() {
+    const username = $('userInput').value.trim(), password = $('passInput').value;
+    const code = $('codeInput').value.trim(), email = $('emailInput').value.trim();
+    if (!username || !password || (authMode === 'recover' && !code) || (authMode === 'register' && !email)) { $('authErr').textContent = 'Completa todos los campos'; return; }
+    $('authBtn').disabled = true; $('authErr').textContent = '';
+    try {
+      const r = await fetch({ login: '/api/login', register: '/api/register', recover: '/api/recover' }[authMode], {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, code, email }),
+      });
+      const d = await r.json();
+      if (!r.ok) { $('authErr').textContent = d.error || 'Error'; return; }
+      localStorage.token = d.token; $('passInput').value = ''; $('codeInput').value = '';
+      setUser(d.user);
+      if (authMode === 'recover') { setMode('login'); toast('✅ Contraseña cambiada'); }
+    } catch { $('authErr').textContent = 'No se pudo conectar con el servidor'; }
+    finally { $('authBtn').disabled = false; }
+  }
+  async function refreshProfile() {
+    if (!localStorage.token) return;
+    try {
+      const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + localStorage.token } });
+      if (r.ok) { const d = await r.json(); user = d.user; showProfile(); }
+    } catch {}
+  }
+  $('tabLogin').onclick = () => setMode('login');
+  $('tabRegister').onclick = () => setMode('register');
+  $('authBtn').onclick = submitAuth;
+  $('logoutBtn').onclick = () => {
+    fetch('/api/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + localStorage.token } }).catch(() => {});
+    closeWs(); logoutLocal();
+  };
+  (async () => {
+    if (!localStorage.token) return;
+    try {
+      const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + localStorage.token } });
+      if (r.ok) setUser((await r.json()).user); else delete localStorage.token;
+    } catch {}
+  })();
   requestAnimationFrame(render);
 })();

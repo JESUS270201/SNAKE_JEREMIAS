@@ -22,6 +22,12 @@ services:
       PGUSER: snake
       PGPASSWORD: snake
       PGDATABASE: snake
+      # Correo (recuperar contraseña): se leen del archivo .env (ver .env.example)
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-Snake Dash <no-reply@snakedash.local>}
     depends_on:
       postgres:
         condition: service_healthy

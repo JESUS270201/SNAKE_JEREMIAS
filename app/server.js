@@ -10,6 +10,8 @@
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { Pool } = require('pg');
@@ -47,7 +49,39 @@ async function initDb() {
           instance   VARCHAR(64) NOT NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
-        CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC);`);
+        CREATE INDEX IF NOT EXISTS scores_score_idx ON scores (score DESC);
+        ALTER TABLE scores ADD COLUMN IF NOT EXISTS user_id INTEGER;
+        CREATE TABLE IF NOT EXISTS users (
+          id          SERIAL PRIMARY KEY,
+          username    VARCHAR(16) NOT NULL,
+          pass_salt   VARCHAR(64) NOT NULL,
+          pass_hash   VARCHAR(256) NOT NULL,
+          skin        INTEGER NOT NULL DEFAULT 0,
+          games       INTEGER NOT NULL DEFAULT 0,
+          total_score INTEGER NOT NULL DEFAULT 0,
+          best_score  INTEGER NOT NULL DEFAULT 0,
+          best_len    INTEGER NOT NULL DEFAULT 3,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+          last_login  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (lower(username));
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS rec_salt VARCHAR(64);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS rec_hash VARCHAR(256);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(100);
+        CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON users (lower(email));
+        CREATE TABLE IF NOT EXISTS password_resets (
+          user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          code_hash  VARCHAR(256) NOT NULL,
+          salt       VARCHAR(64) NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          attempts   INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS sessions (
+          token      VARCHAR(64) PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );`);
       dbReady = true;
       console.log('[pg] base de datos lista');
       return;
@@ -62,9 +96,16 @@ async function saveScore(p, room) {
   if (!dbReady || p.score <= 0) return;
   try {
     await pool.query(
-      'INSERT INTO scores (name, score, length, room, instance) VALUES ($1,$2,$3,$4,$5)',
-      [p.name, p.score, p.maxLen, room, INSTANCE]
+      'INSERT INTO scores (name, score, length, room, instance, user_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [p.name, p.score, p.maxLen, room, INSTANCE, p.userId || null]
     );
+    if (p.userId) {
+      await pool.query(
+        `UPDATE users SET games = games + 1, total_score = total_score + $2,
+           best_score = GREATEST(best_score, $2), best_len = GREATEST(best_len, $3) WHERE id = $1`,
+        [p.userId, p.score, p.maxLen]
+      );
+    }
   } catch (e) {
     console.error('[pg] no se pudo guardar el score:', e.message);
   }
@@ -80,7 +121,185 @@ async function topTen() {
 /* ---------------------------------- HTTP ---------------------------------- */
 const app = express();
 app.disable('x-powered-by');
+app.use(express.json({ limit: '2kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+/* ------------------------------ Cuentas de usuario ------------------------------ */
+const hashPass = (pass, salt) =>
+  new Promise((res, rej) => crypto.scrypt(pass, salt, 64, (e, k) => (e ? rej(e) : res(k.toString('hex')))));
+const publicUser = (u) => ({
+  username: u.username, email: u.email || null, skin: u.skin, games: u.games, totalScore: u.total_score,
+  bestScore: u.best_score, bestLen: u.best_len, createdAt: u.created_at,
+});
+async function newSession(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  await pool.query('INSERT INTO sessions (token, user_id) VALUES ($1,$2)', [token, userId]);
+  return token;
+}
+async function userByToken(token) {
+  if (!token || typeof token !== 'string' || token.length > 64) return null;
+  const { rows } = await pool.query(
+    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token = $1 AND s.created_at > now() - interval '30 days'`, [token]);
+  return rows[0] || null;
+}
+const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer /, '');
+
+// freno simple contra fuerza bruta (por IP)
+const attempts = new Map();
+function tooMany(ip) {
+  const now = Date.now(), a = (attempts.get(ip) || []).filter((t) => now - t < 60000);
+  a.push(now); attempts.set(ip, a);
+  return a.length > 15;
+}
+setInterval(() => attempts.clear(), 300000).unref();
+
+const validName = (s) => typeof s === 'string' && /^[A-Za-z0-9_]{3,12}$/.test(s);
+const validPass = (s) => typeof s === 'string' && s.length >= 4 && s.length <= 64;
+const validEmail = (s) => typeof s === 'string' && s.length <= 100 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s.trim());
+async function findByIdent(ident) {
+  const id = ident.trim();
+  const q = id.includes('@') ? 'lower(email) = lower($1)' : 'lower(username) = lower($1)';
+  return (await pool.query(`SELECT * FROM users WHERE ${q}`, [id])).rows[0] || null;
+}
+
+/* Envío de correo: SMTP_HOST/PORT/USER/PASS/MAIL_FROM. Sin SMTP_PASS el código solo se imprime en el log. */
+const transporter = process.env.SMTP_HOST && process.env.SMTP_PASS ? nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: process.env.SMTP_PORT === '465',
+  auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+}) : null;
+async function sendMail(to, subject, text) {
+  if (!transporter) { console.log(`[mail] SMTP no configurado. Para ${to}: ${subject}\n${text}`); return; }
+  await transporter.sendMail({ from: process.env.MAIL_FROM || 'Snake Dash <no-reply@snakedash.local>', to, subject, text });
+}
+
+const safeEq = (a, b) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+app.post('/api/recover', async (req, res) => {
+  try {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Demasiados intentos, espera un minuto' });
+    const { username: ident, code, password } = req.body || {};
+    const bad = () => res.status(401).json({ error: 'Datos o código incorrectos' });
+    if (typeof ident !== 'string' || ident.length > 100) return bad();
+    if (!validPass(password)) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+    const u = await findByIdent(ident);
+    if (!u) return bad();
+    const digits = String(code || '').replace(/\s/g, '');
+    let ok = false;
+    if (/^\d{6}$/.test(digits)) { // código enviado al correo
+      const r = (await pool.query('SELECT * FROM password_resets WHERE user_id = $1', [u.id])).rows[0];
+      if (r && r.expires_at > new Date() && r.attempts < 5) {
+        ok = safeEq(await hashPass(digits, r.salt), r.code_hash);
+        if (!ok) await pool.query('UPDATE password_resets SET attempts = attempts + 1 WHERE user_id = $1', [u.id]);
+      }
+    }
+    if (!ok) return bad();
+    await pool.query('DELETE FROM password_resets WHERE user_id = $1', [u.id]);
+    const salt = crypto.randomBytes(16).toString('hex');
+    await pool.query('UPDATE users SET pass_salt = $2, pass_hash = $3 WHERE id = $1', [u.id, salt, await hashPass(password, salt)]);
+    await pool.query('DELETE FROM sessions WHERE user_id = $1', [u.id]); // cierra todas las sesiones previas
+    res.json({ token: await newSession(u.id), user: publicUser(u) });
+  } catch (e) { console.error('[auth]', e.message); res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+/* Correo: envía un código de 6 dígitos (válido 15 min). La respuesta es siempre la misma
+   para no revelar qué correos están registrados. */
+app.post('/api/forgot', async (req, res) => {
+  const generic = { ok: true, message: 'Si la cuenta tiene un correo asociado, te enviamos un código.' };
+  try {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Demasiados intentos, espera un minuto' });
+    if (!transporter) return res.status(503).json({ error: 'El envío de correos no está configurado en el servidor' });
+    const { username: ident } = req.body || {};
+    if (typeof ident !== 'string' || ident.length > 100) return res.json(generic);
+    const u = await findByIdent(ident);
+    if (!u || !u.email) return res.json(generic);
+    const prev = (await pool.query('SELECT created_at FROM password_resets WHERE user_id = $1', [u.id])).rows[0];
+    if (prev && Date.now() - new Date(prev.created_at).getTime() < 60000) return res.json(generic);
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const salt = crypto.randomBytes(16).toString('hex');
+    await pool.query(
+      `INSERT INTO password_resets (user_id, code_hash, salt, expires_at, attempts, created_at)
+       VALUES ($1,$2,$3, now() + interval '15 minutes', 0, now())
+       ON CONFLICT (user_id) DO UPDATE SET code_hash = EXCLUDED.code_hash, salt = EXCLUDED.salt,
+         expires_at = EXCLUDED.expires_at, attempts = 0, created_at = now()`,
+      [u.id, await hashPass(code, salt), salt]);
+    sendMail(u.email, 'Snake Dash - código para recuperar tu contraseña',
+      `Hola ${u.username},\n\nTu código de recuperación es: ${code}\n\nEs válido por 15 minutos. Si no lo pediste, ignora este mensaje.`)
+      .catch((e) => console.error('[mail] error al enviar:', e.message));
+    res.json(generic);
+  } catch (e) { console.error('[auth]', e.message); res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+// asociar / cambiar el correo de la cuenta (exige sesión + contraseña actual)
+app.post('/api/email', async (req, res) => {
+  try {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Demasiados intentos, espera un minuto' });
+    const u = await userByToken(bearer(req));
+    if (!u) return res.status(401).json({ error: 'Sesión inválida' });
+    const { password, email } = req.body || {};
+    if (!validPass(password) || !safeEq(await hashPass(password, u.pass_salt), u.pass_hash))
+      return res.status(401).json({ error: 'Contraseña incorrecta' });
+    if (!validEmail(email)) return res.status(400).json({ error: 'Correo no válido' });
+    try {
+      await pool.query('UPDATE users SET email = $2 WHERE id = $1', [u.id, email.trim()]);
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Ese correo ya está en uso' });
+      throw e;
+    }
+    res.json({ email: email.trim() });
+  } catch (e) { console.error('[auth]', e.message); res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+app.post('/api/register', async (req, res) => {
+  try {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Demasiados intentos, espera un minuto' });
+    const { username, password, email } = req.body || {};
+    if (!validName(username)) return res.status(400).json({ error: 'Usuario: 3-12 letras, números o _' });
+    if (!validEmail(email)) return res.status(400).json({ error: 'Escribe un correo válido' });
+    if (!validPass(password)) return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = await hashPass(password, salt);
+    let u;
+    try {
+      u = (await pool.query(
+        'INSERT INTO users (username, email, pass_salt, pass_hash) VALUES ($1,$2,$3,$4) RETURNING *', [username, email.trim(), salt, hash])).rows[0];
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: /email/.test(e.constraint || '') ? 'Ese correo ya está registrado' : 'Ese usuario ya existe' });
+      throw e;
+    }
+    res.json({ token: await newSession(u.id), user: publicUser(u) });
+  } catch (e) { console.error('[auth]', e.message); res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    if (tooMany(req.ip)) return res.status(429).json({ error: 'Demasiados intentos, espera un minuto' });
+    const { username, password } = req.body || {};
+    if (!validName(username) || !validPass(password)) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    const u = (await pool.query('SELECT * FROM users WHERE lower(username) = lower($1)', [username])).rows[0];
+    if (!u) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    const hash = await hashPass(password, u.pass_salt);
+    const ok = hash.length === u.pass_hash.length && crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(u.pass_hash));
+    if (!ok) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+    await pool.query('UPDATE users SET last_login = now() WHERE id = $1', [u.id]);
+    res.json({ token: await newSession(u.id), user: publicUser(u) });
+  } catch (e) { console.error('[auth]', e.message); res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+app.get('/api/me', async (req, res) => {
+  try {
+    const u = await userByToken(bearer(req));
+    if (!u) return res.status(401).json({ error: 'Sesión inválida' });
+    res.json({ user: publicUser(u) });
+  } catch { res.status(503).json({ error: 'Servicio no disponible' }); }
+});
+
+app.post('/api/logout', async (req, res) => {
+  try { await pool.query('DELETE FROM sessions WHERE token = $1', [bearer(req)]); } catch {}
+  res.json({ ok: true });
+});
 
 app.get('/health', (_req, res) => res.json({ ok: true, db: dbReady, instance: INSTANCE }));
 app.get('/api/info', (_req, res) =>
@@ -143,9 +362,9 @@ class Room {
     }
   }
 
-  add(ws, name, skin) {
+  add(ws, name, skin, userId) {
     const p = {
-      id: nextId++, ws, name: name || 'Cube', skin: skin % COLORS,
+      id: nextId++, ws, name: name || 'Cube', skin: skin % COLORS, userId,
       body: [], dir: 'right', queue: [], alive: false, score: 0, maxLen: 0, deaths: 0,
     };
     this.players.set(p.id, p);
@@ -249,10 +468,19 @@ wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.on('pong', () => (ws.isAlive = true));
 
-  ws.on('message', (raw) => {
+  let joining = false;
+  ws.on('message', async (raw) => {
     let m; try { m = JSON.parse(raw); } catch { return; }
-    if (m.type === 'join' && !me) {
-      me = room.add(ws, clean(m.name, 12) || 'Cube', parseInt(m.skin, 10) || 0);
+    if (m.type === 'join' && !me && !joining) {
+      joining = true;
+      let u = null;
+      try { u = await userByToken(m.token); } catch {}
+      if (!u) { send(ws, { type: 'error', code: 'auth', msg: 'Inicia sesión para jugar' }); return ws.close(); }
+      if (ws.readyState !== 1) return;
+      if (room.players.size >= MAX_PLAYERS) { send(ws, { type: 'error', msg: 'Sala llena' }); return ws.close(); }
+      const skin = (parseInt(m.skin, 10) || 0) % COLORS;
+      pool.query('UPDATE users SET skin = $2 WHERE id = $1', [u.id, skin]).catch(() => {});
+      me = room.add(ws, u.username, skin, u.id);
       send(ws, { type: 'welcome', id: me.id, room: room.code, instance: INSTANCE, cols: COLS, rows: ROWS, tick: TICK_MS });
     } else if (!me) return;
     else if (m.type === 'dir' && DIRS[m.dir] && me.alive) {
@@ -263,7 +491,10 @@ wss.on('connection', (ws, req) => {
       room.spawn(me);
     }
   });
-  ws.on('close', () => me && room.remove(me));
+  ws.on('close', () => {
+    if (me) room.remove(me);
+    else if (!room.players.size) { clearInterval(room.timer); if (rooms.get(room.code) === room) rooms.delete(room.code); }
+  });
   ws.on('error', () => {});
 });
 
