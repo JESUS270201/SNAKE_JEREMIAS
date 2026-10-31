@@ -16,7 +16,7 @@
   <header class="top">
     <h1 class="logo" aria-label="Snake Dash"><span>SNAKE</span><span class="d">DASH</span></h1>
     <div class="chips">
-      <div class="chip" id="chipRoom">SALA <b id="roomLabel">—</b></div>
+      <div class="chip" id="chipRoom" title="Clic para cambiar de sala">SALA <b id="roomLabel">—</b></div>
       <div class="chip" id="chipNode">NODO <b id="nodeLabel">—</b></div>
       <div class="chip" id="chipScore">PUNTOS <b id="scoreLabel">0</b></div>
     </div>
@@ -38,6 +38,7 @@
           <label for="roomInput">Sala <small>(comparte el nombre con tus amigos)</small></label>
           <input id="roomInput" maxlength="24" value="arena" autocomplete="off" />
           <button class="btn" id="playBtn">▶ JUGAR</button>
+          <button class="btn sec" id="menuHelpBtn">📖 INSTRUCCIONES</button>
           <p class="hint">Flechas / WASD · Orbes <i class="orb"></i> +10 · Monedas <i class="coin"></i> +30</p>
         </div>
       </div>
@@ -49,6 +50,22 @@
           <div class="big" id="crashScore">0</div>
           <p class="sub">puntos · largo máx. <b id="crashLen">0</b></p>
           <button class="btn" id="respawnBtn">↻ REINTENTAR <small>(Espacio)</small></button>
+          <button class="btn sec" id="menuBtn">🏠 CAMBIAR SALA</button>
+        </div>
+      </div>
+
+      <div class="overlay hidden" id="help">
+        <div class="card">
+          <h2>📖 Instrucciones</h2>
+          <ul class="help-list">
+            <li>⌨️ <b>Flechas / WASD</b> para moverte (en móvil, desliza).</li>
+            <li><i class="orb"></i> Orbes <b>+10</b> · <i class="coin"></i> Monedas <b>+30</b>.</li>
+            <li>☠️ Los <b>pinchos</b> de los bordes, otros cubos y tu propio cuerpo = <b>CRASH</b>.</li>
+            <li>👥 Comparte el nombre de la sala con tus amigos para jugar juntos.</li>
+            <li><b>R</b> reiniciar · <b>H</b> ayuda · <b>Esc</b> salir de la sala · <b>F</b> pantalla completa.</li>
+            <li>⚠️ El juego es en tiempo real: <b>no se pausa</b> mientras lees.</li>
+          </ul>
+          <button class="btn" id="helpClose">ENTENDIDO</button>
         </div>
       </div>
 
@@ -56,6 +73,16 @@
     </section>
 
     <aside class="side">
+      <section class="panel controls">
+        <h3>🕹️ Controles</h3>
+        <div class="ctl-grid">
+          <button class="ctl" id="btnRestart">↻ Reiniciar <kbd>R</kbd></button>
+          <button class="ctl" id="btnHelp">📖 Ayuda <kbd>H</kbd></button>
+          <button class="ctl" id="btnCopy">🔗 Invitar</button>
+          <button class="ctl" id="btnFull">⛶ Pantalla <kbd>F</kbd></button>
+          <button class="ctl danger" id="btnExit">🚪 Salir <kbd>Esc</kbd></button>
+        </div>
+      </section>
       <section class="panel">
         <h3>🎮 En la sala</h3>
         <ol id="players" class="list"></ol>

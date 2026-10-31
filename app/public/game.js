@@ -10,6 +10,41 @@
   let cols = 40, rows = 28;
   let ws = null, myId = null, state = { p: [], f: [] }, skin = +localStorage.skin || 0, particles = [], shake = 0;
   let prevById = {}, lastTick = 0, tickMs = 110;
+  let crashTimer = null, reconnTimer = null, lastPlayersKey = '', lastTopKey = '';
+  let boardCv = null, spikesCv = null;
+
+  function buildBoard() {
+    const W = cols * CELL, H = rows * CELL;
+    boardCv = document.createElement('canvas'); boardCv.width = W; boardCv.height = H;
+    const b = boardCv.getContext('2d');
+    const g = b.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#12084d'); g.addColorStop(1, '#070225');
+    b.fillStyle = g; b.fillRect(0, 0, W, H);
+    b.strokeStyle = 'rgba(0,240,255,.10)'; b.lineWidth = 1;
+    b.beginPath();
+    for (let x = 0; x <= cols; x++) { b.moveTo(x * CELL + .5, 0); b.lineTo(x * CELL + .5, H); }
+    for (let y = 0; y <= rows; y++) { b.moveTo(0, y * CELL + .5); b.lineTo(W, y * CELL + .5); }
+    b.stroke();
+
+    spikesCv = document.createElement('canvas'); spikesCv.width = W; spikesCv.height = H;
+    const s = spikesCv.getContext('2d');
+    s.fillStyle = '#111'; s.strokeStyle = '#ff2fb3'; s.lineWidth = 1.5;
+    s.shadowColor = '#ff2fb3'; s.shadowBlur = 8;
+    const sp = 12, n = Math.floor(W / sp), m = Math.floor(H / sp);
+    s.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = i * sp;
+      s.moveTo(x, 0); s.lineTo(x + sp / 2, 8); s.lineTo(x + sp, 0);
+      s.moveTo(x, H); s.lineTo(x + sp / 2, H - 8); s.lineTo(x + sp, H);
+    }
+    for (let i = 0; i < m; i++) {
+      const y = i * sp;
+      s.moveTo(0, y); s.lineTo(8, y + sp / 2); s.lineTo(0, y + sp);
+      s.moveTo(W, y); s.lineTo(W - 8, y + sp / 2); s.lineTo(W, y + sp);
+    }
+    s.fill(); s.stroke();
+  }
+  buildBoard();
 
   /* ----------------------------- Fondo animado ----------------------------- */
   const bg = $('bg'), bctx = bg.getContext('2d');
@@ -85,15 +120,7 @@
     drawBg(t);
     ctx.save();
     if (shake > 0) { ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake); shake *= .86; if (shake < .5) shake = 0; }
-    const W = cols * CELL, H = rows * CELL;
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#12084d'); g.addColorStop(1, '#070225');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = 'rgba(0,240,255,.10)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= cols; x++) { ctx.moveTo(x * CELL + .5, 0); ctx.lineTo(x * CELL + .5, H); }
-    for (let y = 0; y <= rows; y++) { ctx.moveTo(0, y * CELL + .5); ctx.lineTo(W, y * CELL + .5); }
-    ctx.stroke();
+    ctx.drawImage(boardCv, 0, 0);
 
     // comida
     for (const [fx, fy, ft] of state.f) {
@@ -151,45 +178,70 @@
     }
 
     // pinchos en los bordes (las paredes matan)
-    ctx.fillStyle = '#111'; ctx.strokeStyle = '#ff2fb3'; ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#ff2fb3'; ctx.shadowBlur = 8;
-    const sp = 12, n = Math.floor(W / sp), m = Math.floor(H / sp);
-    ctx.beginPath();
-    for (let i = 0; i < n; i++) {
-      const x = i * sp;
-      ctx.moveTo(x, 0); ctx.lineTo(x + sp / 2, 8); ctx.lineTo(x + sp, 0);
-      ctx.moveTo(x, H); ctx.lineTo(x + sp / 2, H - 8); ctx.lineTo(x + sp, H);
-    }
-    for (let i = 0; i < m; i++) {
-      const y = i * sp;
-      ctx.moveTo(0, y); ctx.lineTo(8, y + sp / 2); ctx.lineTo(0, y + sp);
-      ctx.moveTo(W, y); ctx.lineTo(W - 8, y + sp / 2); ctx.lineTo(W, y + sp);
-    }
-    ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.drawImage(spikesCv, 0, 0);
     ctx.restore();
     requestAnimationFrame(render);
   }
 
   /* --------------------------------- Red --------------------------------- */
+  function closeWs() {
+    clearTimeout(reconnTimer);
+    clearTimeout(crashTimer);
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+      try { ws.close(); } catch {}
+      ws = null;
+    }
+    myId = null;
+  }
+
   function connect() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    closeWs();
     const name = $('nameInput').value.trim() || 'Cube';
     const room = ($('roomInput').value.trim() || 'arena').toLowerCase().replace(/\s+/g, '-');
     localStorage.name = name; localStorage.skin = skin; localStorage.room = room;
     showConn('Conectando…');
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}`);
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'join', name, skin }));
-    ws.onmessage = (ev) => {
+    const sock = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(room)}`);
+    ws = sock;
+    sock.onopen = () => sock.send(JSON.stringify({ type: 'join', name, skin }));
+    sock.onmessage = (ev) => {
+      if (ws !== sock) return;
       const m = JSON.parse(ev.data);
       if (m.type === 'welcome') {
-        myId = m.id; cols = m.cols; rows = m.rows; tickMs = m.tick;
+        clearTimeout(crashTimer);
+        myId = m.id;
+        if (cols !== m.cols || rows !== m.rows) { cols = m.cols; rows = m.rows; buildBoard(); }
+        tickMs = m.tick;
         $('roomLabel').textContent = m.room; $('nodeLabel').textContent = m.instance.slice(-8);
         hide('menu'); hide('conn'); hide('crash');
       } else if (m.type === 's') onState(m);
       else if (m.type === 'dead') onDead(m);
-      else if (m.type === 'error') { showConn(m.msg); setTimeout(() => { hide('conn'); show('menu'); }, 1800); }
+      else if (m.type === 'error') {
+        closeWs();
+        showConn(m.msg);
+        setTimeout(() => { hide('conn'); show('menu'); }, 1800);
+      }
     };
-    ws.onclose = () => { if (myId) { myId = null; showConn('Conexión perdida — reconectando…'); setTimeout(connect, 1500); } };
+    sock.onclose = () => {
+      if (ws !== sock) return;
+      myId = null;
+      hide('crash');
+      showConn('Conexión perdida — reconectando…');
+      reconnTimer = setTimeout(connect, 1500);
+    };
+  }
+
+  function leaveRoom() {
+    closeWs();
+    state = { p: [], f: [] };
+    prevById = {};
+    lastPlayersKey = '';
+    $('players').innerHTML = '';
+    hide('crash'); hide('conn'); show('menu');
+    $('roomInput').focus();
+    $('roomInput').select();
   }
 
   function onState(m) {
@@ -208,15 +260,20 @@
       $('progressBar').style.width = Math.min(100, (me.b.length / 40) * 100) + '%';
     }
     const list = [...m.p].sort((a, b) => b.s - a.s);
-    $('players').innerHTML = list.map((p) =>
-      `<li class="${p.id === myId ? 'me' : ''} ${p.a ? '' : 'dead'}"><i class="sw" style="background:${SKINS[p.k][0]}"></i><span class="nm">${esc(p.n)}</span><span class="sc">${p.s}</span></li>`).join('');
+    const pKey = `${myId}|` + list.map((p) => `${p.id}:${p.n}:${p.k}:${p.a}:${p.s}`).join('|');
+    if (pKey !== lastPlayersKey) {
+      lastPlayersKey = pKey;
+      $('players').innerHTML = list.map((p) =>
+        `<li class="${p.id === myId ? 'me' : ''} ${p.a ? '' : 'dead'}"><i class="sw" style="background:${SKINS[p.k][0]}"></i><span class="nm">${esc(p.n)}</span><span class="sc">${p.s}</span></li>`).join('');
+    }
   }
 
   function onDead(m) {
     $('crashScore').textContent = m.score; $('crashLen').textContent = m.length;
     $('crashWhy').textContent = m.why === 'wall' ? 'Te estrellaste contra los pinchos' : m.why === 'self' ? 'Te mordiste a ti mismo' : 'Chocaste con ' + m.why.replace('crash:', '');
-    setTimeout(() => show('crash'), 600);
-    setTimeout(loadTop, 700);
+    clearTimeout(crashTimer);
+    crashTimer = setTimeout(() => show('crash'), 500);
+    setTimeout(loadTop, 650);
   }
 
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -226,17 +283,31 @@
   async function loadTop() {
     try {
       const r = await fetch('/api/top'); const d = await r.json();
-      $('top').innerHTML = d.top.length ? d.top.map((t) =>
-        `<li><span class="nm">${esc(t.name)}</span><span class="sc">${t.score}</span></li>`).join('') : '<li class="empty">Sé el primero en el ranking</li>';
-    } catch { $('top').innerHTML = '<li class="empty">Ranking no disponible</li>'; }
+      const tKey = d.top.map((t) => `${t.name}:${t.score}`).join('|') || 'empty';
+      if (tKey !== lastTopKey) {
+        lastTopKey = tKey;
+        $('top').innerHTML = d.top.length ? d.top.map((t) =>
+          `<li><span class="nm">${esc(t.name)}</span><span class="sc">${t.score}</span></li>`).join('') : '<li class="empty">Sé el primero en el ranking</li>';
+      }
+    } catch {
+      if (lastTopKey !== 'err') {
+        lastTopKey = 'err';
+        $('top').innerHTML = '<li class="empty">Ranking no disponible</li>';
+      }
+    }
   }
 
   /* -------------------------------- Controles -------------------------------- */
   const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
   addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') $('playBtn').click(); return; }
+    if (!$('menu').classList.contains('hidden')) {
+      if (e.key === 'Enter') { e.preventDefault(); $('playBtn').click(); }
+      return;
+    }
     if (KEYS[e.key]) { e.preventDefault(); ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'dir', dir: KEYS[e.key] })); }
     if ((e.key === ' ' || e.key === 'Enter') && !$('crash').classList.contains('hidden')) { e.preventDefault(); $('respawnBtn').click(); }
+    if (e.key === 'Escape') { e.preventDefault(); leaveRoom(); }
   });
   // swipe táctil
   let t0 = null;
@@ -245,10 +316,53 @@
     if (!t0) return; const t1 = e.changedTouches[0], dx = t1.clientX - t0.clientX, dy = t1.clientY - t0.clientY;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-    ws && ws.send(JSON.stringify({ type: 'dir', dir }));
+    ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'dir', dir }));
   });
 
-  $('respawnBtn').onclick = () => { ws.send(JSON.stringify({ type: 'respawn' })); hide('crash'); };
+  $('respawnBtn').onclick = () => {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    clearTimeout(crashTimer);
+    hide('crash');
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'respawn' }));
+    else connect();
+  };
+  function toast(msg) {
+    const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 1800);
+  }
+  const inGame = () => ws && ws.readyState === 1 && myId;
+  function restart() {
+    if (!inGame()) return;
+    clearTimeout(crashTimer); hide('crash'); hide('help');
+    ws.send(JSON.stringify({ type: 'respawn' }));
+  }
+  function toggleHelp() { $('help').classList.contains('hidden') ? show('help') : hide('help'); }
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  }
+  function copyInvite() {
+    const room = $('roomLabel').textContent;
+    const url = `${location.origin}/?room=${encodeURIComponent(room === '—' ? $('roomInput').value : room)}`;
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+      .then(() => toast('🔗 Enlace copiado'), () => prompt('Copia el enlace:', url));
+  }
+  $('btnRestart').onclick = (e) => { e.currentTarget.blur(); restart(); };
+  $('btnHelp').onclick = (e) => { e.currentTarget.blur(); toggleHelp(); };
+  $('btnCopy').onclick = (e) => { e.currentTarget.blur(); copyInvite(); };
+  $('btnFull').onclick = (e) => { e.currentTarget.blur(); toggleFull(); };
+  $('btnExit').onclick = (e) => { e.currentTarget.blur(); leaveRoom(); };
+  $('helpClose').onclick = () => hide('help');
+  $('menuHelpBtn').onclick = () => show('help');
+  addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || !$('menu').classList.contains('hidden')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'r') restart();
+    else if (k === 'h') toggleHelp();
+    else if (k === 'f') toggleFull();
+  });
+  $('menuBtn').onclick = leaveRoom;
+  $('chipRoom').onclick = leaveRoom;
   $('playBtn').onclick = connect;
 
   /* ---------------------------------- Menú ---------------------------------- */

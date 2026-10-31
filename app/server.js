@@ -258,7 +258,10 @@ wss.on('connection', (ws, req) => {
     else if (m.type === 'dir' && DIRS[m.dir] && me.alive) {
       const last = me.queue.length ? me.queue[me.queue.length - 1] : me.dir;
       if (m.dir !== last && m.dir !== OPP[last] && me.queue.length < 3) me.queue.push(m.dir);
-    } else if (m.type === 'respawn' && !me.alive) room.spawn(me);
+    } else if (m.type === 'respawn') {
+      if (me.alive) { saveScore(me, room.code); me.maxLen = 3; }
+      room.spawn(me);
+    }
   });
   ws.on('close', () => me && room.remove(me));
   ws.on('error', () => {});
