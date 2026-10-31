@@ -6,6 +6,11 @@ Snake multijugador en tiempo real con temática **Geometry Dash**.
 - **Kubernetes**: Deployment (3 réplicas + HPA), Service, Ingress, StatefulSet de PostgreSQL con PVC.
 - **PostgreSQL**: tabla `scores`; el Top 10 es global y persistente.
 
+## Despliegue en Azure
+Tu juego está disponible públicamente en:
+- **Dominio Azure:** http://snake-dash-jesus.northcentralus.cloudapp.azure.com
+- **IP pública:** http://20.80.23.142
+
 ## Docker Compose
 ```bash
 docker compose up --build --scale app=3
