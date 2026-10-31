@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SNAKE DASH – Snake multijugador estilo Geometry Dash</title>
+  <meta name="description" content="Snake multijugador en tiempo real con estética Geometry Dash. Compite en salas y entra al Top 10 global guardado en PostgreSQL." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Rubik:wght@500;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+
+  <header class="top">
+    <h1 class="logo" aria-label="Snake Dash"><span>SNAKE</span><span class="d">DASH</span></h1>
+    <div class="chips">
+      <div class="chip" id="chipRoom">SALA <b id="roomLabel">—</b></div>
+      <div class="chip" id="chipNode">NODO <b id="nodeLabel">—</b></div>
+      <div class="chip" id="chipScore">PUNTOS <b id="scoreLabel">0</b></div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stage">
+      <div class="progress" aria-hidden="true"><i id="progressBar"></i></div>
+      <canvas id="game" width="960" height="672"></canvas>
+
+      <div class="overlay" id="menu">
+        <div class="card">
+          <div class="cube-preview"><canvas id="preview" width="96" height="96"></canvas></div>
+          <h2>¡Prepárate para el salto!</h2>
+          <label for="nameInput">Nombre</label>
+          <input id="nameInput" maxlength="12" placeholder="Tu nombre" autocomplete="off" />
+          <label>Elige tu cubo</label>
+          <div class="skins" id="skins"></div>
+          <label for="roomInput">Sala <small>(comparte el nombre con tus amigos)</small></label>
+          <input id="roomInput" maxlength="24" value="arena" autocomplete="off" />
+          <button class="btn" id="playBtn">▶ JUGAR</button>
+          <p class="hint">Flechas / WASD · Orbes <i class="orb"></i> +10 · Monedas <i class="coin"></i> +30</p>
+        </div>
+      </div>
+
+      <div class="overlay hidden" id="crash">
+        <div class="card crash">
+          <h2 class="crash-title">¡CRASH!</h2>
+          <p id="crashWhy">—</p>
+          <div class="big" id="crashScore">0</div>
+          <p class="sub">puntos · largo máx. <b id="crashLen">0</b></p>
+          <button class="btn" id="respawnBtn">↻ REINTENTAR <small>(Espacio)</small></button>
+        </div>
+      </div>
+
+      <div class="overlay hidden" id="conn"><div class="card"><h2 id="connMsg">Conectando…</h2></div></div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h3>🎮 En la sala</h3>
+        <ol id="players" class="list"></ol>
+      </section>
+      <section class="panel gold">
+        <h3>🏆 Top 10 global <small>PostgreSQL</small></h3>
+        <ol id="top" class="list top"><li class="empty">Cargando…</li></ol>
+      </section>
+    </aside>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snake-app
+  namespace: snake-dash
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: snake-app }
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: snake-app }
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: snake
+          image: snake-dash:latest
+          imagePullPolicy: IfNotPresent   # imagen local (minikube/kind/docker-desktop)
+          ports:
+            - containerPort: 3000
+          env:
+            - { name: PGHOST, value: postgres }
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_USER } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_PASSWORD } }
+            - name: PGDATABASE
+              valueFrom: { secretKeyRef: { name: postgres-secret, key: POSTGRES_DB } }
+          readinessProbe:
+            httpGet: { path: /health, port: 3000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 96Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snake-app
+  namespace: snake-dash
+spec:
+  selector: { app: snake-app }
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+# Autoescalado según CPU
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: snake-app
+  namespace: snake-dash
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: snake-app
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }
+---
+# Balanceo de carga: el Ingress reparte las salas entre pods con hash consistente de ?room=
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: snake-ingress
+  namespace: snake-dash
+  annotations:
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_room"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: snake.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: snake-app
+                port: { number: 80 }
