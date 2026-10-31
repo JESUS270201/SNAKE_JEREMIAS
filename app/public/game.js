@@ -215,6 +215,7 @@
         if (cols !== m.cols || rows !== m.rows) { cols = m.cols; rows = m.rows; buildBoard(); }
         tickMs = m.tick;
         $('roomLabel').textContent = m.room; $('nodeLabel').textContent = m.instance.slice(-8);
+        loadTop();
         hide('menu'); hide('conn'); hide('crash');
       } else if (m.type === 's') onState(m);
       else if (m.type === 'dead') onDead(m);
@@ -282,20 +283,64 @@
   const show = (id) => $(id).classList.remove('hidden'), hide = (id) => $(id).classList.add('hidden');
   function showConn(msg) { $('connMsg').textContent = msg; show('conn'); }
 
+  let topData = { global: [], room: [], roomName: 'arena' };
+  let topTab = localStorage.topTab || 'both';
+
+  function currentRoomName() {
+    return (ws && myId && $('roomLabel').textContent !== '—')
+      ? $('roomLabel').textContent
+      : (($('roomInput').value.trim() || 'arena').toLowerCase().replace(/\s+/g, '-'));
+  }
+
+  function setTopTab(tab) {
+    topTab = tab;
+    localStorage.topTab = tab;
+    $('tabTopGlobal').classList.toggle('sel', tab === 'global');
+    $('tabTopRoom').classList.toggle('sel', tab === 'room');
+    $('tabTopBoth').classList.toggle('sel', tab === 'both');
+    renderTop();
+  }
+
+  function renderList(items, emptyMsg) {
+    if (!items || !items.length) {
+      return `<li class="empty">${emptyMsg}</li>`;
+    }
+    return items.map((t) =>
+      `<li><span class="nm">${esc(t.name)}</span><span class="sc">${t.score}</span></li>`
+    ).join('');
+  }
+
+  function renderTop() {
+    const c = $('rankContainer');
+    if (!c) return;
+    const rName = topData.roomName || currentRoomName();
+    if (topTab === 'global') {
+      $('rankSub').innerHTML = `<span>Global</span> <small>PostgreSQL</small>`;
+      c.innerHTML = `<ol class="list top">${renderList(topData.global, 'Sé el primero en el ranking')}</ol>`;
+    } else if (topTab === 'room') {
+      $('rankSub').innerHTML = `<span>Sala: <b>${esc(rName)}</b></span> <small>PostgreSQL</small>`;
+      c.innerHTML = `<ol class="list top">${renderList(topData.room, 'Sin puntuaciones en esta sala')}</ol>`;
+    } else {
+      $('rankSub').innerHTML = `<span>Sala: <b>${esc(rName)}</b> y Global</span> <small>PostgreSQL</small>`;
+      c.innerHTML = `
+        <div class="rank-section-title">Top de sala <small>${esc(rName)}</small></div>
+        <ol class="list top">${renderList(topData.room, 'Sin puntuaciones en esta sala')}</ol>
+        <div class="rank-section-title" style="margin-top:14px;">Top 10 global <small>Todos</small></div>
+        <ol class="list top">${renderList(topData.global, 'Sé el primero en el ranking')}</ol>
+      `;
+    }
+  }
+
   async function loadTop() {
     try {
-      const r = await fetch('/api/top'); const d = await r.json();
-      const tKey = d.top.map((t) => `${t.name}:${t.score}`).join('|') || 'empty';
-      if (tKey !== lastTopKey) {
-        lastTopKey = tKey;
-        $('top').innerHTML = d.top.length ? d.top.map((t) =>
-          `<li><span class="nm">${esc(t.name)}</span><span class="sc">${t.score}</span></li>`).join('') : '<li class="empty">Sé el primero en el ranking</li>';
-      }
+      const room = currentRoomName();
+      const r = await fetch(`/api/top?room=${encodeURIComponent(room)}`);
+      const d = await r.json();
+      topData = { global: d.top || [], room: d.roomTop || [], roomName: d.room || room };
+      renderTop();
     } catch {
-      if (lastTopKey !== 'err') {
-        lastTopKey = 'err';
-        $('top').innerHTML = '<li class="empty">Ranking no disponible</li>';
-      }
+      const c = $('rankContainer');
+      if (c) c.innerHTML = '<ol class="list top"><li class="empty">Ranking no disponible</li></ol>';
     }
   }
 
@@ -351,7 +396,7 @@
     const room = $('roomLabel').textContent;
     const url = `${location.origin}/?room=${encodeURIComponent(room === '—' ? $('roomInput').value : room)}`;
     (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
-      .then(() => toast('🔗 Enlace copiado'), () => prompt('Copia el enlace:', url));
+      .then(() => toast('Enlace copiado'), () => prompt('Copia el enlace:', url));
   }
   $('btnRestart').onclick = (e) => { e.currentTarget.blur(); restart(); };
   $('btnHelp').onclick = (e) => { e.currentTarget.blur(); toggleHelp(); };
@@ -370,6 +415,9 @@
   $('menuBtn').onclick = leaveRoom;
   $('chipRoom').onclick = leaveRoom;
   $('playBtn').onclick = connect;
+  $('tabTopGlobal').onclick = () => setTopTab('global');
+  $('tabTopRoom').onclick = () => setTopTab('room');
+  $('tabTopBoth').onclick = () => setTopTab('both');
 
   /* ---------------------------------- Menú ---------------------------------- */
   const pv = $('preview').getContext('2d');
@@ -381,7 +429,8 @@
   };
   function sync() { document.querySelectorAll('.skin').forEach((d) => d.classList.toggle('sel', +d.dataset.i === skin)); drawPreview(); }
   $('roomInput').value = new URLSearchParams(location.search).get('room') || localStorage.room || 'arena';
-  sync(); loadTop(); setInterval(loadTop, 8000);
+  $('roomInput').addEventListener('input', () => { if (!ws || !myId) loadTop(); });
+  sync(); setTopTab(topTab); loadTop(); setInterval(loadTop, 8000);
 
   /* ------------------------------ Cuentas ------------------------------ */
   let user = null, authMode = 'login';
@@ -389,7 +438,7 @@
     authMode = mode;
     $('tabLogin').classList.toggle('sel', mode === 'login');
     $('tabRegister').classList.toggle('sel', mode === 'register');
-    $('authTitle').textContent = { login: '🔐 Iniciar sesión', register: '✨ Crear cuenta', recover: '🔑 Recuperar contraseña' }[mode];
+    $('authTitle').textContent = { login: 'Iniciar sesión', register: 'Crear cuenta', recover: 'Recuperar contraseña' }[mode];
     $('authBtn').textContent = { login: 'ENTRAR', register: 'CREAR Y JUGAR', recover: 'CAMBIAR CONTRASEÑA' }[mode];
     $('passInput').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
     $('passLabel').textContent = mode === 'recover' ? 'Nueva contraseña' : 'Contraseña';
@@ -406,8 +455,8 @@
   $('forgotBtn').onclick = () => setMode(authMode === 'recover' ? 'login' : 'recover');
   function showProfile() {
     $('profName').textContent = user.username;
-    $('profMail').textContent = user.email ? '✉️ ' + user.email : '⚠️ Sin correo asociado';
-    $('emailBtn').textContent = user.email ? '📧 CAMBIAR CORREO' : '📧 ASOCIAR CORREO';
+    $('profMail').textContent = user.email ? user.email : 'Sin correo asociado';
+    $('emailBtn').textContent = user.email ? 'CAMBIAR CORREO' : 'ASOCIAR CORREO';
     $('stGames').textContent = user.games; $('stBest').textContent = user.bestScore; $('stTotal').textContent = user.totalScore;
   }
   function setUser(u) {
@@ -438,7 +487,7 @@
         body: JSON.stringify({ email, password }),
       });
       const d = await r.json();
-      if (r.ok) { user.email = d.email; showProfile(); toast('✅ Correo guardado'); } else toast(d.error || 'Error');
+      if (r.ok) { user.email = d.email; showProfile(); toast('Correo guardado'); } else toast(d.error || 'Error');
     } catch { toast('No se pudo conectar'); }
   };
   function logoutLocal() {
@@ -460,7 +509,7 @@
       if (!r.ok) { $('authErr').textContent = d.error || 'Error'; return; }
       localStorage.token = d.token; $('passInput').value = ''; $('codeInput').value = '';
       setUser(d.user);
-      if (authMode === 'recover') { setMode('login'); toast('✅ Contraseña cambiada'); }
+      if (authMode === 'recover') { setMode('login'); toast('Contraseña cambiada'); }
     } catch { $('authErr').textContent = 'No se pudo conectar con el servidor'; }
     finally { $('authBtn').disabled = false; }
   }

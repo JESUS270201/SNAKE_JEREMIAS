@@ -29,7 +29,7 @@
 
       <div class="overlay" id="auth">
         <div class="card">
-          <h2 id="authTitle">🔐 Iniciar sesión</h2>
+          <h2 id="authTitle">Iniciar sesión</h2>
           <div class="tabs">
             <button type="button" class="tab sel" id="tabLogin">Entrar</button>
             <button type="button" class="tab" id="tabRegister">Crear cuenta</button>
@@ -47,7 +47,7 @@
           <label for="passInput" id="passLabel">Contraseña</label>
           <input id="passInput" type="password" maxlength="64" placeholder="Mínimo 4 caracteres" autocomplete="current-password" />
           <p class="auth-err" id="authErr"></p>
-          <button class="btn sec hidden-field" id="sendCodeBtn" type="button">✉️ ENVIAR CÓDIGO AL CORREO</button>
+          <button class="btn sec hidden-field" id="sendCodeBtn" type="button">ENVIAR CÓDIGO AL CORREO</button>
           <button class="btn" id="authBtn">ENTRAR</button>
           <button type="button" class="link" id="forgotBtn">¿Olvidaste tu contraseña?</button>
         </div>
@@ -58,7 +58,7 @@
           <div class="cube-preview"><canvas id="preview" width="96" height="96"></canvas></div>
           <h2>¡Prepárate para el salto!</h2>
           <div class="profile">
-            <div class="pname">👤 <b id="profName">—</b></div>
+            <div class="pname"><b id="profName">—</b></div>
             <div class="pmail" id="profMail"></div>
             <div class="pstats">
               <span>Partidas <b id="stGames">0</b></span>
@@ -70,10 +70,10 @@
           <div class="skins" id="skins"></div>
           <label for="roomInput">Sala <small>(comparte el nombre con tus amigos)</small></label>
           <input id="roomInput" maxlength="24" value="arena" autocomplete="off" />
-          <button class="btn" id="playBtn">▶ JUGAR</button>
-          <button class="btn sec" id="menuHelpBtn">📖 INSTRUCCIONES</button>
-          <button class="btn sec" id="emailBtn">📧 ASOCIAR CORREO</button>
-          <button class="btn sec" id="logoutBtn">🚪 CERRAR SESIÓN</button>
+          <button class="btn" id="playBtn">JUGAR</button>
+          <button class="btn sec" id="menuHelpBtn">INSTRUCCIONES</button>
+          <button class="btn sec" id="emailBtn">ASOCIAR CORREO</button>
+          <button class="btn sec" id="logoutBtn">CERRAR SESIÓN</button>
           <p class="hint">Flechas / WASD · Orbes <i class="orb"></i> +10 · Monedas <i class="coin"></i> +30</p>
         </div>
       </div>
@@ -84,21 +84,21 @@
           <p id="crashWhy">—</p>
           <div class="big" id="crashScore">0</div>
           <p class="sub">puntos · largo máx. <b id="crashLen">0</b></p>
-          <button class="btn" id="respawnBtn">↻ REINTENTAR <small>(Espacio)</small></button>
-          <button class="btn sec" id="menuBtn">🏠 CAMBIAR SALA</button>
+          <button class="btn" id="respawnBtn">REINTENTAR <small>(Espacio)</small></button>
+          <button class="btn sec" id="menuBtn">CAMBIAR SALA</button>
         </div>
       </div>
 
       <div class="overlay hidden" id="help">
         <div class="card">
-          <h2>📖 Instrucciones</h2>
+          <h2>Instrucciones</h2>
           <ul class="help-list">
-            <li>⌨️ <b>Flechas / WASD</b> para moverte (en móvil, desliza).</li>
+            <li><b>Flechas / WASD</b> para moverte (en móvil, desliza).</li>
             <li><i class="orb"></i> Orbes <b>+10</b> · <i class="coin"></i> Monedas <b>+30</b>.</li>
-            <li>☠️ Los <b>pinchos</b> de los bordes, otros cubos y tu propio cuerpo = <b>CRASH</b>.</li>
-            <li>👥 Comparte el nombre de la sala con tus amigos para jugar juntos.</li>
+            <li>Los <b>pinchos</b> de los bordes, otros cubos y tu propio cuerpo = <b>CRASH</b>.</li>
+            <li>Comparte el nombre de la sala con tus amigos para jugar juntos.</li>
             <li><b>R</b> reiniciar · <b>H</b> ayuda · <b>Esc</b> salir de la sala · <b>F</b> pantalla completa.</li>
-            <li>⚠️ El juego es en tiempo real: <b>no se pausa</b> mientras lees.</li>
+            <li>El juego es en tiempo real: <b>no se pausa</b> mientras lees.</li>
           </ul>
           <button class="btn" id="helpClose">ENTENDIDO</button>
         </div>
@@ -109,22 +109,29 @@
 
     <aside class="side">
       <section class="panel controls">
-        <h3>🕹️ Controles</h3>
+        <h3>Controles</h3>
         <div class="ctl-grid">
-          <button class="ctl" id="btnRestart">↻ Reiniciar <kbd>R</kbd></button>
-          <button class="ctl" id="btnHelp">📖 Ayuda <kbd>H</kbd></button>
-          <button class="ctl" id="btnCopy">🔗 Invitar</button>
-          <button class="ctl" id="btnFull">⛶ Pantalla <kbd>F</kbd></button>
-          <button class="ctl danger" id="btnExit">🚪 Salir <kbd>Esc</kbd></button>
+          <button class="ctl" id="btnRestart">Reiniciar <kbd>R</kbd></button>
+          <button class="ctl" id="btnHelp">Ayuda <kbd>H</kbd></button>
+          <button class="ctl" id="btnCopy">Invitar</button>
+          <button class="ctl" id="btnFull">Pantalla <kbd>F</kbd></button>
+          <button class="ctl danger" id="btnExit">Salir <kbd>Esc</kbd></button>
         </div>
       </section>
       <section class="panel">
-        <h3>🎮 En la sala</h3>
+        <h3>En la sala</h3>
         <ol id="players" class="list"></ol>
       </section>
       <section class="panel gold">
-        <h3>🏆 Top 10 global <small>PostgreSQL</small></h3>
-        <ol id="top" class="list top"><li class="empty">Cargando…</li></ol>
+        <div class="rank-nav">
+          <button type="button" class="rank-tab" id="tabTopGlobal">Top 10 global</button>
+          <button type="button" class="rank-tab" id="tabTopRoom">Top de sala</button>
+          <button type="button" class="rank-tab sel" id="tabTopBoth">Ambos</button>
+        </div>
+        <div class="rank-sub" id="rankSub"><span>Top de sala y global</span> <small>PostgreSQL</small></div>
+        <div id="rankContainer">
+          <ol id="top" class="list top"><li class="empty">Cargando…</li></ol>
+        </div>
       </section>
     </aside>
   </main>

@@ -93,27 +93,41 @@ async function initDb() {
 }
 
 async function saveScore(p, room) {
-  if (!dbReady || p.score <= 0) return;
+  if (!dbReady || p.score <= 0 || !p.userId) return;
   try {
     await pool.query(
       'INSERT INTO scores (name, score, length, room, instance, user_id) VALUES ($1,$2,$3,$4,$5,$6)',
-      [p.name, p.score, p.maxLen, room, INSTANCE, p.userId || null]
+      [p.name, p.score, p.maxLen, room, INSTANCE, p.userId]
     );
-    if (p.userId) {
-      await pool.query(
-        `UPDATE users SET games = games + 1, total_score = total_score + $2,
-           best_score = GREATEST(best_score, $2), best_len = GREATEST(best_len, $3) WHERE id = $1`,
-        [p.userId, p.score, p.maxLen]
-      );
-    }
+    await pool.query(
+      `UPDATE users SET games = games + 1, total_score = total_score + $2,
+         best_score = GREATEST(best_score, $2), best_len = GREATEST(best_len, $3) WHERE id = $1`,
+      [p.userId, p.score, p.maxLen]
+    );
   } catch (e) {
     console.error('[pg] no se pudo guardar el score:', e.message);
   }
 }
 
-async function topTen() {
+async function topTen(room) {
+  if (room) {
+    const { rows } = await pool.query(
+      `SELECT s.name, s.score, s.length, s.room, s.created_at
+       FROM scores s
+       JOIN users u ON s.user_id = u.id
+       WHERE lower(s.room) = lower($1)
+       ORDER BY s.score DESC, s.created_at ASC
+       LIMIT 10`,
+      [room]
+    );
+    return rows;
+  }
   const { rows } = await pool.query(
-    'SELECT name, score, length, room, created_at FROM scores ORDER BY score DESC, created_at ASC LIMIT 10'
+    `SELECT s.name, s.score, s.length, s.room, s.created_at
+     FROM scores s
+     JOIN users u ON s.user_id = u.id
+     ORDER BY s.score DESC, s.created_at ASC
+     LIMIT 10`
   );
   return rows;
 }
@@ -305,11 +319,14 @@ app.get('/health', (_req, res) => res.json({ ok: true, db: dbReady, instance: IN
 app.get('/api/info', (_req, res) =>
   res.json({ instance: INSTANCE, rooms: rooms.size, players: totalPlayers(), cols: COLS, rows: ROWS })
 );
-app.get('/api/top', async (_req, res) => {
+app.get('/api/top', async (req, res) => {
   try {
-    res.json({ instance: INSTANCE, top: await topTen() });
+    const room = clean(req.query.room, 24).toLowerCase();
+    const globalTop = await topTen();
+    const roomTop = room ? await topTen(room) : [];
+    res.json({ instance: INSTANCE, top: globalTop, roomTop, room: room || null });
   } catch (e) {
-    res.status(503).json({ error: 'db_unavailable', top: [] });
+    res.status(503).json({ error: 'db_unavailable', top: [], roomTop: [] });
   }
 });
 

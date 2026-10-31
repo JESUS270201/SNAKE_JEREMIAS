@@ -698,6 +698,78 @@ body {
   display: none;
 }
 
+.rank-nav {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.rank-tab {
+  flex: 1;
+  font: 700 12px 'Rubik', sans-serif;
+  letter-spacing: 0.5px;
+  padding: 8px 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #c9b8ff;
+  border: 2px solid rgba(255, 230, 0, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.rank-tab:hover {
+  filter: brightness(1.2);
+  border-color: var(--yellow);
+}
+
+.rank-tab.sel {
+  background: linear-gradient(180deg, var(--yellow), #b8860b);
+  color: #000;
+  border-color: #fff;
+  box-shadow: 0 0 12px rgba(255, 230, 0, 0.45);
+}
+
+.rank-sub {
+  font-size: 11px;
+  color: #c9b8ff;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rank-sub b {
+  color: var(--cyan);
+}
+
+.rank-section-title {
+  font: 400 15px 'Lilita One';
+  letter-spacing: 1px;
+  color: var(--yellow);
+  margin: 10px 0 6px;
+  text-shadow: 0 2px 0 #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rank-section-title:first-child {
+  margin-top: 0;
+}
+
+.rank-section-title small {
+  font: 700 10px 'Rubik';
+  color: var(--cyan);
+  border: 1px solid var(--cyan);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
 @keyframes slide {
   from {
     transform: translateX(14px);
